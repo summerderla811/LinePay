@@ -1,0 +1,5 @@
+{
+  "name": "Line Pay Ledger-new2",
+  "description": "A calming, iOS-optimized ledger for tracking Line Pay deposits, expenses, and weekly cycles.",
+  "requestFramePermissions": []
+}
