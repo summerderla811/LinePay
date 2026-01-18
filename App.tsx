@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, LayoutDashboard, PieChart, ChevronDown, Calendar, Wallet, StickyNote, X, Share, MoreHorizontal, Trash2, Check, Minus, Plus as PlusIcon, Divide, Equal, Delete, Sparkles, Smile, Coffee, Heart, Archive, History, ChevronRight, TrendingUp, TrendingDown, Download, AlertCircle, Clock, Info, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Plus, LayoutDashboard, PieChart, ChevronDown, Calendar, Wallet, StickyNote, X, Share, MoreHorizontal, Trash2, Check, Minus, Divide, Equal, Delete, Sparkles, Smile, Coffee, Heart, Archive, History, ChevronRight, TrendingUp, TrendingDown, Download, AlertCircle, Clock, Info, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 // Import local components and utilities
 import TransactionList from './components/TransactionList';
@@ -92,12 +92,12 @@ const Keypad = ({ onPress, onDelete, onConfirm, onClear, onEqual }: any) => {
         <div className="grid grid-cols-4 gap-3 p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] bg-white rounded-t-[3rem] shadow-[0_-15px_50px_-15px_rgba(0,0,0,0.12)] border-t border-slate-100">
             <button onClick={() => { triggerHaptic(); onClear(); }} className={funcBtnClass}>AC</button>
             <button onClick={() => handlePress('/')} className={opBtnClass}><Divide size={24} /></button>
-            <button onClick={() => handlePress('*')} className={opBtnClass}><MoreHorizontal size={24} /></button>
+            <button onClick={() => handlePress('*')} className={opBtnClass}><X size={24} /></button>
             <button onClick={() => { triggerHaptic(); onDelete(); }} className={funcBtnClass}><Delete size={26} /></button>
             {['7','8','9'].map(n => <button key={n} onClick={() => handlePress(n)} className={numBtnClass}>{n}</button>)}
             <button onClick={() => handlePress('-')} className={opBtnClass}><Minus size={24} /></button>
             {['4','5','6'].map(n => <button key={n} onClick={() => handlePress(n)} className={numBtnClass}>{n}</button>)}
-            <button onClick={() => handlePress('+')} className={opBtnClass}><PlusIcon size={24} /></button>
+            <button onClick={() => handlePress('+')} className={opBtnClass}><Plus size={24} /></button>
             {['1','2','3'].map(n => <button key={n} onClick={() => handlePress(n)} className={numBtnClass}>{n}</button>)}
             <button onClick={() => { triggerHaptic(); onEqual(); }} className="h-18 bg-indigo-50 rounded-2xl text-indigo-500 font-bold border border-indigo-100 active:bg-indigo-100 active:scale-90 transition-all flex items-center justify-center"><Equal size={24} /></button>
             <button onClick={() => handlePress('0')} className={`${numBtnClass} col-span-2`}>0</button>
@@ -358,10 +358,17 @@ const AddModalComponent = ({ onAdd, onClose }: any) => {
 
     const calculate = (exp: string) => {
         try { 
-            const safeExp = exp.replace(/[^-+*/.0-9]/g, '');
+            // 移除不合法字元
+            let safeExp = exp.replace(/[^-+*/.0-9]/g, '');
+            // 移除末尾的運算子，避免 eval 錯誤
+            safeExp = safeExp.replace(/[+\-*/.]+$/, '');
             if (!safeExp) return '0';
+            
+            // 執行計算
             const result = eval(safeExp);
-            return String(result || '0'); 
+            
+            // 處理浮點數精度問題並四捨五入到小數點兩位
+            return String(Number(result.toFixed(2)) || '0'); 
         } catch { return '0'; }
     };
 
