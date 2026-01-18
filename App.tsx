@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, LayoutDashboard, PieChart, ChevronDown, Calendar, Wallet, StickyNote, X, Share, MoreHorizontal, Trash2, Check, Minus, Divide, Equal, Delete, Sparkles, Smile, Coffee, Heart, Archive, History, ChevronRight, TrendingUp, TrendingDown, Download, AlertCircle, Clock, Info, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, writeBatch, orderBy } from 'firebase/firestore';
 
 // Import local components and utilities
+import { db } from './firebase';
 import TransactionList from './components/TransactionList';
 import ChartSection from './components/ChartSection';
 import { CATEGORIES, formatCurrency, formatNum } from './constants';
@@ -112,22 +114,32 @@ const App = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [viewingSettlement, setViewingSettlement] = useState<Settlement | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [currentRange, setCurrentRange] = useState(() => ({ ...getThisWeekRange(), label: '本週' }));
 
+  // Firebase Real-time Sync
   useEffect(() => {
-    const savedTx = localStorage.getItem('linepay_ledger_data');
-    const savedSt = localStorage.getItem('linepay_settlements_data');
-    if (savedTx) setTransactions(JSON.parse(savedTx));
-    if (savedSt) setSettlements(JSON.parse(savedSt));
-  }, []);
+    const qTransactions = query(collection(db, 'transactions'), orderBy('date', 'desc'));
+    const unsubscribeTx = onSnapshot(qTransactions, (snapshot) => {
+      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
+      setTransactions(txs);
+      setIsLoading(false);
+    });
 
-  useEffect(() => {
-    localStorage.setItem('linepay_ledger_data', JSON.stringify(transactions));
-    localStorage.setItem('linepay_settlements_data', JSON.stringify(settlements));
-  }, [transactions, settlements]);
+    const qSettlements = query(collection(db, 'settlements'), orderBy('settledDate', 'desc'));
+    const unsubscribeSt = onSnapshot(qSettlements, (snapshot) => {
+      const sts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Settlement));
+      setSettlements(sts);
+    });
+
+    return () => {
+      unsubscribeTx();
+      unsubscribeSt();
+    };
+  }, []);
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
@@ -162,26 +174,53 @@ const App = () => {
     return { income, expense, remaining, usagePercent, dailyAllowance, daysLeft, projectedRemaining, statusMsg, statusIcon };
   }, [filteredTransactions, currentRange]);
 
-  const handleAdd = (amount: number, type: TransactionType, category: Category, note: string, date: string, periodStart?: string, periodEnd?: string) => {
-    const newTx: Transaction = { id: Date.now().toString(), amount, type, category, note, date, periodStart, periodEnd };
-    setTransactions([newTx, ...transactions]);
-    setShowAddModal(false);
+  const handleAdd = async (amount: number, type: TransactionType, category: Category, note: string, date: string, periodStart?: string, periodEnd?: string) => {
+    const newTxData = { amount, type, category, note, date, periodStart: periodStart || null, periodEnd: periodEnd || null };
+    try {
+      await addDoc(collection(db, 'transactions'), newTxData);
+      setShowAddModal(false);
+    } catch (e) {
+      console.error("Firebase Error Adding:", e);
+      alert("新增失敗，請檢查網路連線");
+    }
   };
 
-  const handleSettleWeek = () => {
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'transactions', id));
+    } catch (e) {
+      console.error("Firebase Error Deleting:", e);
+    }
+  };
+
+  const handleSettleWeek = async () => {
     if (transactions.length === 0 && stats.income === 0) return;
-    const newSettlement: Settlement = {
-        id: Date.now().toString(),
+    
+    const newSettlementData = {
         settledDate: new Date().toISOString(),
         totalIncome: stats.income,
         totalExpense: stats.expense,
         remaining: stats.remaining,
-        transactions: [...transactions]
+        transactions: transactions.map(t => ({ ...t, id: t.id })) // Capture static snapshot
     };
-    setSettlements([newSettlement, ...settlements]);
-    setTransactions([]);
-    setShowSettleModal(false);
-    setActiveTab('stats');
+
+    try {
+      // 1. 新增結算報告
+      await addDoc(collection(db, 'settlements'), newSettlementData);
+      
+      // 2. 批次刪除所有 active 帳目
+      const batch = writeBatch(db);
+      transactions.forEach(t => {
+        batch.delete(doc(db, 'transactions', t.id));
+      });
+      await batch.commit();
+
+      setShowSettleModal(false);
+      setActiveTab('stats');
+    } catch (e) {
+      console.error("Firebase Error Settling:", e);
+      alert("結算失敗，請稍後再試");
+    }
   };
 
   const handleExport = (dataToExport: Transaction[], filename: string) => {
@@ -214,6 +253,15 @@ const App = () => {
   const isOverSpent = stats.remaining < 0;
   const isNearingEnd = stats.usagePercent >= 85;
 
+  if (isLoading) {
+    return (
+        <div className="h-full w-full flex flex-col items-center justify-center bg-slate-50">
+            <div className="w-16 h-16 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+            <p className="text-slate-400 font-black text-xs tracking-widest uppercase">載入雲端帳本中...</p>
+        </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
       <IOSInstallPrompt forceShow={showInstallHelp} onClose={() => setShowInstallHelp(false)} />
@@ -223,7 +271,7 @@ const App = () => {
           <div>
             <h1 className="text-3xl font-black text-slate-800 tracking-tight">生活・滋味</h1>
             <div className="flex items-center gap-2 mt-1">
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Line Pay 管理</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Line Pay 雲端版</p>
                 <button onClick={() => setShowInstallHelp(true)} className="text-blue-500 bg-blue-50 p-1 rounded-full active:scale-90 transition-transform"><Info size={12} /></button>
             </div>
           </div>
@@ -288,7 +336,7 @@ const App = () => {
                     <History size={20} className="text-slate-400" />
                     <h2 className="text-xl font-black text-slate-800 tracking-tight">支出明細</h2>
                 </div>
-                <TransactionList transactions={filteredTransactions as any} onDelete={id => setTransactions(transactions.filter(t => t.id !== id))} />
+                <TransactionList transactions={filteredTransactions as any} onDelete={handleDelete} />
             </>
         ) : (
             <div className="space-y-10">
@@ -358,16 +406,10 @@ const AddModalComponent = ({ onAdd, onClose }: any) => {
 
     const calculate = (exp: string) => {
         try { 
-            // 移除不合法字元
             let safeExp = exp.replace(/[^-+*/.0-9]/g, '');
-            // 移除末尾的運算子，避免 eval 錯誤
             safeExp = safeExp.replace(/[+\-*/.]+$/, '');
             if (!safeExp) return '0';
-            
-            // 執行計算
             const result = eval(safeExp);
-            
-            // 處理浮點數精度問題並四捨五入到小數點兩位
             return String(Number(result.toFixed(2)) || '0'); 
         } catch { return '0'; }
     };
