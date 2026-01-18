@@ -1,3 +1,4 @@
+
 export type TransactionType = 'income' | 'expense' | 'memo' | 'credit_card';
 
 export type Category = 
@@ -20,6 +21,16 @@ export interface Transaction {
   note: string;
   periodStart?: string;
   periodEnd?: string;
+}
+
+// 這是解決錯誤的關鍵：確保 Settlement 被正確導出
+export interface Settlement {
+  id: string;
+  settledDate: string;
+  totalIncome: number;
+  totalExpense: number;
+  remaining: number;
+  transactions: Transaction[];
 }
 
 export interface DateRange {
